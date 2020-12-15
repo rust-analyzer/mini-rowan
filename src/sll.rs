@@ -6,7 +6,7 @@ use std::{
     rc::{self, Rc},
 };
 
-pub(crate) trait Elem: std::fmt::Debug {
+pub(crate) trait Elem {
     fn prev(&self) -> &Cell<rc::Weak<Self>>;
     fn next(&self) -> &Cell<rc::Weak<Self>>;
     fn key(&self) -> &Cell<usize>;
