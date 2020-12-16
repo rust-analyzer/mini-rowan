@@ -2,33 +2,33 @@ use mini_rowan::*;
 
 #[rustfmt::skip]
 fn make_tree() -> SyntaxTree {
-    fn kw(kw: &'static str) -> FunToken {
-        FunToken::new(kw, kw)
+    fn kw(kw: &'static str) -> PureToken {
+        PureToken::new(kw, kw)
     }
-    fn op(kw: &'static str) -> FunToken {
-        FunToken::new(kw, kw)
+    fn op(kw: &'static str) -> PureToken {
+        PureToken::new(kw, kw)
     }
-    fn ident(ident: &str) -> FunToken {
-        FunToken::new("ident", ident)
+    fn ident(ident: &str) -> PureToken {
+        PureToken::new("ident", ident)
     }
 
-    let func: FunTree = FunTree::new("function-decl")
+    let func: PureTree = PureTree::new("function-decl")
         .push(kw("pub"))
         .push(kw("fun"))
-        .push(FunTree::new("generic-param-list")
-            .push(FunTree::new("param-decl")
+        .push(PureTree::new("generic-param-list")
+            .push(PureTree::new("param-decl")
                 .push(ident("T"))
-                .push(FunTree::new("param-bound")
+                .push(PureTree::new("param-bound")
                     .push(op(":"))
                     .push(ident("Clone"))
                 )
             )
         )
-        .push(FunTree::new("param-list").push(op("(")).push(op(")")))
-        .push(FunTree::new("where-clause")
-            .push(FunTree::new("where-pred")
+        .push(PureTree::new("param-list").push(op("(")).push(op(")")))
+        .push(PureTree::new("where-clause")
+            .push(PureTree::new("where-pred")
                 .push(ident("T"))
-                .push(FunTree::new("param-bound")
+                .push(PureTree::new("param-bound")
                     .push(op(":"))
                     .push(ident("Eq"))
                 )
@@ -57,7 +57,7 @@ fn smoke_test() {
     let old_offset = where_clause.offset();
     param_bound.detach();
     assert!(where_clause.offset() == old_offset - param_bound.text_len());
-    where_clause.find_tree("where-pred").unwrap().insert_child(2, param_bound);
+    where_clause.find_tree("where-pred").unwrap().insert_child(2, param_bound.into());
     println!("{:#?}", func);
 
     {

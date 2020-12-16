@@ -1,4 +1,4 @@
-mod fun;
+mod pure;
 mod sll;
 mod delta;
 
@@ -9,7 +9,7 @@ use std::{
     rc::{self, Rc},
 };
 
-pub use fun::{FunChild, FunChildKind, FunToken, FunTree, FunTreeData};
+pub use pure::{PureChild, PureChildKind, PureToken, PureTree, PureTreeData};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SyntaxTree {
@@ -27,13 +27,25 @@ pub enum SyntaxChild {
     Token(SyntaxToken),
 }
 
-enum Fun {
-    Tree(RefCell<FunTree>),
-    Token(FunToken),
+impl From<SyntaxToken> for SyntaxChild {
+    fn from(v: SyntaxToken) -> Self {
+        SyntaxChild::Token(v)
+    }
+}
+
+impl From<SyntaxTree> for SyntaxChild {
+    fn from(v: SyntaxTree) -> Self {
+        SyntaxChild::Tree(v)
+    }
+}
+
+enum Pure {
+    Tree(RefCell<PureTree>),
+    Token(PureToken),
 }
 
 struct SyntaxData {
-    fun: Fun,
+    pure: Pure,
 
     parent: Cell<Option<SyntaxTree>>,
     index: Cell<usize>,
@@ -57,17 +69,17 @@ impl sll::Elem for SyntaxData {
 }
 
 impl SyntaxChild {
-    fn new(fun: FunChild, parent: SyntaxTree, index: usize) -> SyntaxChild {
+    fn new(pure: PureChild, parent: SyntaxTree, index: usize) -> SyntaxChild {
         let mut token = false;
-        let fun = match fun.kind {
-            FunChildKind::Tree(it) => Fun::Tree(RefCell::new(it)),
-            FunChildKind::Token(it) => {
+        let pure = match pure.kind {
+            PureChildKind::Tree(it) => Pure::Tree(RefCell::new(it)),
+            PureChildKind::Token(it) => {
                 token = true;
-                Fun::Token(it)
+                Pure::Token(it)
             }
         };
         let data = SyntaxData {
-            fun,
+            pure,
             parent: Cell::new(Some(parent)),
             index: Cell::new(index),
             first: Default::default(),
@@ -138,7 +150,7 @@ impl SyntaxToken {
         self.data.kind()
     }
     pub fn text(&self) -> &str {
-        self.fun().text()
+        self.pure().text()
     }
     pub fn offset(&self) -> usize {
         self.data.offset()
@@ -159,18 +171,18 @@ impl SyntaxToken {
         self.data.detach()
     }
 
-    fn fun(&self) -> &FunToken {
-        match &self.data.fun {
-            Fun::Tree(_) => unreachable!(),
-            Fun::Token(it) => it,
+    fn pure(&self) -> &PureToken {
+        match &self.data.pure {
+            Pure::Tree(_) => unreachable!(),
+            Pure::Token(it) => it,
         }
     }
 }
 
 impl SyntaxTree {
-    fn new(fun: FunTree) -> SyntaxTree {
+    fn new(pure: PureTree) -> SyntaxTree {
         let data = SyntaxData {
-            fun: Fun::Tree(RefCell::new(fun)),
+            pure: Pure::Tree(RefCell::new(pure)),
             parent: Cell::new(None),
             index: Cell::new(0),
             first: Default::default(),
@@ -204,8 +216,8 @@ impl SyntaxTree {
         self.data.prev_sibling()
     }
     fn get_child(&self, index: usize) -> Option<SyntaxChild> {
-        let fun = self.fun().borrow().get_child(index).cloned()?;
-        let mut res = SyntaxChild::new(fun, self.clone(), index);
+        let pure = self.pure().borrow().get_child(index).cloned()?;
+        let mut res = SyntaxChild::new(pure, self.clone(), index);
         sll::link(&self.data.first, res.data_mut());
         Some(res)
     }
@@ -228,7 +240,7 @@ impl SyntaxTree {
         }
     }
 
-    pub fn insert_child(&self, index: usize, mut child: SyntaxTree) {
+    pub fn insert_child(&self, index: usize, mut child: SyntaxChild) {
         assert!(child.parent().is_none());
         let weak = self.data.first.take();
         let first = weak.upgrade();
@@ -236,21 +248,31 @@ impl SyntaxTree {
         if let Some(first) = first {
             sll::adjust(&first, index, 1);
         }
-        sll::link(&self.data.first, &mut child.data);
+        sll::link(
+            &self.data.first,
+            match &mut child {
+                SyntaxChild::Tree(it) => &mut it.data,
+                SyntaxChild::Token(it) => &mut it.data,
+            },
+        );
 
-        let fun = self.fun().borrow().insert_child(index, child.fun().borrow().clone().into());
-        self.replace_fun(fun)
+        let pure_child = match child {
+            SyntaxChild::Tree(it) => it.pure().borrow().clone().into(),
+            SyntaxChild::Token(it) => it.pure().clone().into(),
+        };
+        let pure = self.pure().borrow().insert_child(index, pure_child);
+        self.replace_pure(pure)
     }
     pub fn detach(&self) {
         self.data.detach()
     }
-    fn replace_fun(&self, mut fun: FunTree) {
+    fn replace_pure(&self, mut pure: PureTree) {
         let mut node = self.clone();
         loop {
-            *node.fun().borrow_mut() = fun.clone();
+            *node.pure().borrow_mut() = pure.clone();
             match node.parent() {
                 Some(parent) => {
-                    fun = parent.fun().borrow().replace_child(node.data.index.get(), fun.into());
+                    pure = parent.pure().borrow().replace_child(node.data.index.get(), pure.into());
                     node = parent
                 }
                 None => return,
@@ -258,10 +280,10 @@ impl SyntaxTree {
         }
     }
 
-    fn fun(&self) -> &RefCell<FunTree> {
-        match &self.data.fun {
-            Fun::Tree(it) => it,
-            Fun::Token(_) => unreachable!(),
+    fn pure(&self) -> &RefCell<PureTree> {
+        match &self.data.pure {
+            Pure::Tree(it) => it,
+            Pure::Token(_) => unreachable!(),
         }
     }
 }
@@ -284,29 +306,29 @@ impl Drop for SyntaxToken {
     }
 }
 
-impl From<FunTree> for SyntaxTree {
-    fn from(fun: FunTree) -> Self {
-        SyntaxTree::new(fun)
+impl From<PureTree> for SyntaxTree {
+    fn from(pure: PureTree) -> Self {
+        SyntaxTree::new(pure)
     }
 }
 
 impl fmt::Debug for SyntaxTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&*self.fun().borrow(), f)
+        fmt::Debug::fmt(&*self.pure().borrow(), f)
     }
 }
 
 impl fmt::Debug for SyntaxToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&*self.fun(), f)
+        fmt::Debug::fmt(&*self.pure(), f)
     }
 }
 
 impl SyntaxData {
     fn kind(&self) -> &'static str {
-        match &self.fun {
-            Fun::Tree(it) => it.borrow().kind(),
-            Fun::Token(it) => it.kind(),
+        match &self.pure {
+            Pure::Tree(it) => it.borrow().kind(),
+            Pure::Token(it) => it.kind(),
         }
     }
     fn offset(&self) -> usize {
@@ -314,14 +336,14 @@ impl SyntaxData {
         if let Some(parent) = self.parent() {
             let idx = self.index.get();
             offset += parent.offset();
-            offset += parent.fun().borrow().get_child(idx).unwrap().offset;
+            offset += parent.pure().borrow().get_child(idx).unwrap().offset;
         }
         offset
     }
     fn text_len(&self) -> usize {
-        match &self.fun {
-            Fun::Tree(it) => it.borrow().text_len(),
-            Fun::Token(it) => it.text_len(),
+        match &self.pure {
+            Pure::Tree(it) => it.borrow().text_len(),
+            Pure::Token(it) => it.text_len(),
         }
     }
     fn parent(&self) -> Option<SyntaxTree> {
@@ -341,8 +363,8 @@ impl SyntaxData {
     }
     fn detach(self: &Rc<SyntaxData>) {
         if let Some(parent) = self.parent() {
-            let fun = parent.fun().borrow().remove_child(self.index.get());
-            parent.replace_fun(fun);
+            let pure = parent.pure().borrow().remove_child(self.index.get());
+            parent.replace_pure(pure);
         }
         sll::adjust(&self, self.index.get() + 1, -1);
         self.unlink();
